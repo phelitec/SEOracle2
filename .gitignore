@@ -1,0 +1,32 @@
+# Arquivos de configuração com credenciais
+config.ini
+
+# Arquivos de log
+logs/
+*.log
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Distribuição / empacotamento
+dist/
+build/
+*.egg-info/
+
+# Arquivos temporários
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Arquivos específicos do projeto
+keywords_processed.txt
