@@ -1,13 +1,14 @@
 """
 SEO Content Generator
 ==================
-Main class for generating and publishing SEO content.
+Main class for generating and publishing SEO optimized content.
 """
 
 import time
 import logging
 from typing import Dict, Any, List, Optional
 from openai import OpenAI
+import datetime
 
 from .utils import extract_json_from_text, load_keywords, select_keywords, word_count
 from .wordpress_api import WordPressClient
@@ -86,24 +87,31 @@ class SEOContentGenerator:
         # Brief delay to avoid rate limits
         time.sleep(2)
         
-        # 2. Generate article based on plan
-        self.logger.info(f"Gerando artigo com base no plano: {content_plan.get('title', '')}")
-        article = self._generate_article(content_plan, keyword)
+        # 2. Generate SEO-optimized title and meta description
+        self.logger.info(f"Otimizando título e meta description para: {keyword}")
+        seo_metadata = self._generate_seo_metadata(keyword, content_plan)
         
         # Brief delay to avoid rate limits
         time.sleep(2)
         
-        # 3. Review and improve content
-        self.logger.info(f"Revisando artigo: {article.get('title', '')}")
+        # 3. Generate article based on plan and SEO metadata
+        self.logger.info(f"Gerando artigo otimizado para SEO com base no plano: {seo_metadata.get('seo_title', '')}")
+        article = self._generate_article(content_plan, keyword, seo_metadata)
+        
+        # Brief delay to avoid rate limits
+        time.sleep(2)
+        
+        # 4. Review and improve content
+        self.logger.info(f"Revisando artigo: {article.get('seo_title', '')}")
         reviewed_article = self._review_content(article, keyword)
         
-        # 4. Publish to WordPress
+        # 5. Publish to WordPress
         category_id = None
         if self.config["content"]["target_category"]:
             category_id = self.wp_client.get_category_id(self.config["content"]["target_category"])
         
         result = self.wp_client.publish_post(
-            title=reviewed_article["title"],
+            title=reviewed_article["seo_title"],
             content=reviewed_article["content"],
             excerpt=reviewed_article["meta_description"],
             category_id=category_id
@@ -124,17 +132,25 @@ class SEOContentGenerator:
         Raises:
             Exception: If content plan generation fails
         """
+        current_year = datetime.datetime.now().year
+        
         prompt = f"""
         Crie um plano detalhado para um artigo de blog focado na palavra-chave "{keyword}".
         O artigo precisa ser otimizado para SEO e gerar tráfego orgânico.
         
         Forneça:
-        1. Um título atraente que inclua a palavra-chave principal
-        2. Pelo menos 5 subtópicos relevantes para estruturar o artigo
-        3. Palavras-chave secundárias relacionadas para incluir naturalmente
-        4. Sugestões de tipos de conteúdo que funcionam bem para este tópico (listas, tutoriais, etc.)
-        5. Sugestões de perguntas frequentes que podem ser respondidas
-        6. Meta descrição otimizada para SEO (até 160 caracteres)
+        1. Sugestões de títulos atraentes, incluindo a palavra-chave principal no início, seguido de um gancho como ano atual ({current_year}), adjetivo ou número
+        2. Pelo menos 5 subtópicos relevantes para estruturar o artigo como seções H2, incluindo obrigatoriamente:
+           - Um passo a passo sobre o tema
+           - Uma lista de recursos/sites/ferramentas recomendados
+           - Uma comparação entre opções/métodos
+           - Dicas práticas ou erros a evitar
+           - Perguntas frequentes (FAQs)
+        3. Palavras-chave secundárias relacionadas, incluindo 3 variações de cauda longa
+        4. Sugestões para elementos visuais e onde posicioná-los (tabelas, listas com marcadores, imagens)
+        5. Ideias para links internos relevantes
+        6. Sugestão de URL amigável
+        7. Meta descrição otimizada para SEO (até 160 caracteres)
         
         Apresente os resultados em formato JSON estruturado para processamento automático.
         """
@@ -150,11 +166,12 @@ class SEOContentGenerator:
             
             # Ensure consistent keys
             standardized_plan = {
-                "title": plan.get("titulo", plan.get("title", "")),
+                "title_suggestions": plan.get("titulos", plan.get("title_suggestions", [])),
                 "subtopics": plan.get("subtopicos", plan.get("subtopics", [])),
-                "secondary_keywords": plan.get("keywords_secundarias", plan.get("secondary_keywords", [])),
-                "content_types": plan.get("tipos_de_conteudo", plan.get("content_types", [])),
-                "faqs": plan.get("perguntas_frequentes", plan.get("faqs", [])),
+                "secondary_keywords": plan.get("palavras_chave_secundarias", plan.get("secondary_keywords", [])),
+                "visual_elements": plan.get("elementos_visuais", plan.get("visual_elements", [])),
+                "internal_links": plan.get("links_internos", plan.get("internal_links", [])),
+                "friendly_url": plan.get("url_amigavel", plan.get("friendly_url", "")),
                 "meta_description": plan.get("meta_descricao", plan.get("meta_description", ""))
             }
             
@@ -164,13 +181,78 @@ class SEOContentGenerator:
             self.logger.error(f"Erro ao gerar plano de conteúdo: {str(e)}")
             raise Exception(f"Falha ao gerar plano de conteúdo: {str(e)}")
     
-    def _generate_article(self, content_plan: Dict[str, Any], keyword: str) -> Dict[str, Any]:
+    def _generate_seo_metadata(self, keyword: str, content_plan: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate an article based on the content plan.
+        Generate SEO-optimized title and meta description.
+        
+        Args:
+            keyword: Target keyword
+            content_plan: Content plan dictionary
+            
+        Returns:
+            SEO metadata dictionary
+        """
+        current_year = datetime.datetime.now().year
+        
+        prompt = f"""
+        Com base na palavra-chave "{keyword}" e no plano de conteúdo, otimize os seguintes elementos SEO:
+
+        1. Título SEO: 
+           - Inclua a palavra-chave principal no início
+           - Adicione um gancho (ano atual {current_year}, adjetivo chamativo ou número)
+           - Máximo de 60 caracteres
+           - Seja claro e atrativo
+
+        2. Meta description:
+           - Limite de 160 caracteres
+           - Inclua a palavra-chave principal + verbo de ação
+           - Mencione o benefício principal para o leitor
+           - Inclua um elemento de urgência ou curiosidade
+
+        3. URL amigável:
+           - Formato: /palavra-chave-principal-{current_year}
+           - Use apenas letras minúsculas, números e hífens
+           - Evite preposições e artigos
+
+        Retorne apenas o JSON com estes três elementos.
+        """
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            
+            content = response.choices[0].message.content
+            seo_data = extract_json_from_text(content)
+            
+            # Ensure consistent keys
+            standardized_seo = {
+                "seo_title": seo_data.get("titulo_seo", seo_data.get("seo_title", "")),
+                "meta_description": seo_data.get("meta_description", ""),
+                "friendly_url": seo_data.get("url_amigavel", seo_data.get("friendly_url", ""))
+            }
+            
+            return standardized_seo
+            
+        except Exception as e:
+            self.logger.error(f"Erro ao gerar metadados SEO: {str(e)}")
+            
+            # Fallback to content plan data if available
+            return {
+                "seo_title": content_plan.get("title_suggestions", [""])[0] if content_plan.get("title_suggestions") else f"Como {keyword} em {current_year}",
+                "meta_description": content_plan.get("meta_description", f"Aprenda sobre {keyword} com este guia completo. Dicas, exemplos e melhores práticas para resultados eficientes."),
+                "friendly_url": content_plan.get("friendly_url", keyword.lower().replace(" ", "-"))
+            }
+    
+    def _generate_article(self, content_plan: Dict[str, Any], keyword: str, seo_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate an SEO-optimized article based on the content plan.
         
         Args:
             content_plan: Content plan dictionary
             keyword: Target keyword
+            seo_metadata: SEO metadata dictionary
             
         Returns:
             Generated article dictionary
@@ -178,45 +260,77 @@ class SEOContentGenerator:
         Raises:
             Exception: If article generation fails
         """
-        # Extract information from the plan
-        title = content_plan.get("title", f"Artigo sobre {keyword}")
+        # Extract information from the plan and metadata
+        title = seo_metadata.get("seo_title", f"Como {keyword}")
+        meta_description = seo_metadata.get("meta_description", "")
         subtopics = content_plan.get("subtopics", [])
-        keywords = content_plan.get("secondary_keywords", [])
-        faqs = content_plan.get("faqs", [])
+        secondary_keywords = content_plan.get("secondary_keywords", [])
+        visual_elements = content_plan.get("visual_elements", [])
+        internal_links = content_plan.get("internal_links", [])
         
-        # Prepare prompt
+        # Convert lists to string format for prompt
         subtopics_text = "\n".join([f"- {s}" for s in subtopics])
-        keywords_text = ", ".join(keywords)
-        faqs_text = ", ".join(faqs)
+        keywords_text = ", ".join(secondary_keywords)
+        visuals_text = "\n".join([f"- {v}" for v in visual_elements]) if visual_elements else "Adicione elementos visuais relevantes"
+        internal_links_text = "\n".join([f"- {l}" for l in internal_links]) if internal_links else "Sugira links internos relevantes"
         
         # CTA details
         cta_url = self.config["cta"]["url"]
         cta_text = self.config["cta"]["text"]
         
+        current_year = datetime.datetime.now().year
+        
         prompt = f"""
-        Crie um artigo de blog completo e otimizado para SEO com base nas seguintes informações:
+        Crie um artigo de blog completo e otimizado para SEO com base nas seguintes instruções:
         
-        Título: {title}
+        # Informações Básicas
+        - Palavra-chave principal: "{keyword}"
+        - Título SEO: "{title}"
+        - Meta descrição: "{meta_description}"
+        - Palavras-chave secundárias: {keywords_text}
         
-        Estrutura de subtópicos:
-        {subtopics_text}
+        # Estrutura Obrigatória
+        1. **Introdução (150 palavras):**
+           - Contextualize o problema que o leitor enfrenta
+           - Mencione a palavra-chave principal e uma variação
+           - Apresente o que o leitor vai aprender no artigo
+           - Inclua um hook emocional ou estatística impactante
         
-        Palavras-chave secundárias a incluir naturalmente: {keywords_text}
+        2. **Corpo do Artigo (use os subtópicos como H2):**
+           {subtopics_text}
+           - Para cada H2, crie pelo menos um H3 relevante
+           - Inclua pelo menos uma lista com marcadores (✓ ou ✗) em uma seção
+           - Para o subtópico "passo a passo", numere claramente os passos
+           - Para o subtópico de "comparação", crie uma tabela comparativa em HTML
         
-        Diretrizes:
-        1. Escreva um artigo com {self.config["content"]["min_words"]} a {self.config["content"]["max_words"]} palavras
-        2. Inclua uma introdução atraente que mencione a palavra-chave principal
-        3. Desenvolva cada subtópico com informações valiosas e específicas
-        4. Inclua uma seção de perguntas frequentes respondendo às seguintes perguntas: {faqs_text}
-        5. Termine com uma conclusão que incentive o engajamento
-        6. Use subtítulos H2 e H3 adequadamente
-        7. Inclua algumas sugestões de links internos indicados com [LINK INTERNO: tópico sugerido]
-        8. Termine com uma conclusão motivacional e inclua um call-to-action (CTA) natural usando este template:
-    "Quer acelerar seu crescimento no Instagram? Conheça nossa solução premium para 
-    [seguidores/curtidas/views] que [benefício principal] em [tempo de resultado]. 
-    <a href="{cta_url}" target="_blank">{cta_text}</a>"
+        3. **Seção FAQ:**
+           - Inclua pelo menos 3 perguntas frequentes com respostas diretas
+           - Use a palavra-chave principal em pelo menos uma pergunta
+        
+        4. **Conclusão (100 palavras):**
+           - Resuma os principais pontos
+           - Reforce o benefício principal
+           - Termine com um Call-to-Action natural para o leitor
+        
+        # Elementos de Otimização
+        - Densidade da palavra-chave principal: 1-1.5% (bem distribuída)
+        - Insira marcadores de imagem com [IMAGEM: descrição com palavra-chave]
+        - Sugestões para elementos visuais:
+          {visuals_text}
+        - Sugestões para links internos:
+          {internal_links_text}
+        
+        # Call-to-Action Final
+        Termine com este CTA personalizado:
+        "Quer acelerar seus resultados com {keyword}? Conheça nossa solução premium que entrega resultados comprovados. <a href="{cta_url}" class="cta-button" target="_blank">{cta_text}</a>"
+        
+        # Diretrizes Técnicas
+        - Formate o artigo com HTML semântico (h2, h3, p, ul, ol, table, etc.)
+        - Adicione classes CSS para elementos visuais (cta-button, comparison-table, etc.)
+        - Inclua marcações schema JSON-LD para FAQ no final do artigo
+        - Otimize para leitura em dispositivos móveis
 
-        Forneça apenas o conteúdo do artigo formatado em HTML, sem comentários adicionais.
+        Forneça apenas o conteúdo HTML do artigo, sem comentários adicionais.
         """
         
         try:
@@ -227,10 +341,12 @@ class SEOContentGenerator:
             
             content = response.choices[0].message.content
             
+            # Package the article content with SEO metadata
             return {
-                "title": title,
+                "seo_title": title,
                 "content": content,
-                "meta_description": content_plan.get("meta_description", "")
+                "meta_description": meta_description,
+                "friendly_url": seo_metadata.get("friendly_url", "")
             }
             
         except Exception as e:
@@ -239,7 +355,7 @@ class SEOContentGenerator:
     
     def _review_content(self, article: Dict[str, Any], keyword: str) -> Dict[str, Any]:
         """
-        Review and improve the generated article.
+        Review and improve the generated article for SEO optimization.
         
         Args:
             article: Generated article dictionary
@@ -252,24 +368,43 @@ class SEOContentGenerator:
             Exception: If content review fails
         """
         prompt = f"""
-        Revise este artigo de blog para otimização SEO e qualidade editorial:
+        Revise este artigo de blog para melhorar a otimização SEO e qualidade editorial:
         
-        Título: {article["title"]}
+        # Informações Básicas
+        - Palavra-chave principal: "{keyword}"
+        - Título: "{article['seo_title']}"
         
-        Conteúdo:
-        {article["content"]}
+        # Conteúdo Atual
+        {article['content']}
         
-        Palavra-chave principal: {keyword}
+        # Checklist de Otimização SEO
+        Por favor, verifique e corrija:
         
-        Por favor, revise e corrija:
-        1. Qualquer erro gramatical ou ortográfico
-        2. Melhore a densidade da palavra-chave (deve aparecer naturalmente, sem exagero)
-        3. Verifique se os subtítulos usam as tags H2 e H3 corretamente
-        4. Certifique-se de que o conteúdo está completo e coerente
-        5. Melhore a meta descrição se necessário
-        6. Sugira algumas melhorias para links internos
+        1. **Estrutura e Formatação**
+           - Título H1 contém a palavra-chave principal no início?
+           - H2s e H3s estão formatados corretamente e incluem palavras-chave secundárias?
+           - Parágrafos são curtos e fáceis de ler (3-4 linhas por parágrafo)?
+           - Todos os elementos visuais solicitados foram incluídos?
         
-        Forneça o conteúdo revisado em HTML e uma meta descrição atualizada em formato JSON.
+        2. **Densidade e Distribuição de Palavras-chave**
+           - A palavra-chave principal aparece na densidade ideal (1-1.5%)?
+           - A palavra-chave principal aparece nos primeiros 100 caracteres?
+           - Palavras-chave secundárias estão distribuídas naturalmente?
+           - Há variações semânticas das palavras-chave?
+        
+        3. **Elementos Técnicos**
+           - As marcações de imagem estão corretas e incluem a palavra-chave?
+           - Os links internos sugeridos estão implementados?
+           - A tabela comparativa está formatada corretamente?
+           - O schema JSON-LD para FAQ está implementado corretamente?
+        
+        4. **Qualidade do Conteúdo**
+           - Há erros gramaticais ou ortográficos?
+           - O conteúdo é original e informativo?
+           - As seções de passo a passo são claras e acionáveis?
+           - O CTA final está bem integrado e persuasivo?
+        
+        Forneça o conteúdo HTML revisado, preservando toda a formatação e otimização SEO.
         """
         
         try:
@@ -280,29 +415,24 @@ class SEOContentGenerator:
             
             content = response.choices[0].message.content
             
-            # Try to extract JSON with meta description
+            # Try to extract any structured JSON data if present
             json_data = extract_json_from_text(content)
             
-            # Extract HTML content (anything that's not JSON)
-            html_content = content
-            
-            # Check if we found valid JSON
-            if "meta_description" in json_data:
-                # Remove JSON parts from the content
-                import re
-                html_content = re.sub(r'```json\s*[\s\S]*?\s*```|{[\s\S]*}', '', content).strip()
-                
+            # If we found valid structured data
+            if any([key in json_data for key in ["meta_description", "seo_title", "title", "friendly_url"]]):
                 return {
-                    "title": article["title"],
-                    "content": html_content or article["content"],  # Fallback to original if extraction failed
-                    "meta_description": json_data.get("meta_description", article["meta_description"])
+                    "seo_title": json_data.get("seo_title", json_data.get("title", article["seo_title"])),
+                    "content": json_data.get("content", content),
+                    "meta_description": json_data.get("meta_description", article["meta_description"]),
+                    "friendly_url": json_data.get("friendly_url", article["friendly_url"])
                 }
             else:
-                # If no JSON found, assume it's just the HTML content
+                # If no JSON found, return the revised content with original metadata
                 return {
-                    "title": article["title"],
+                    "seo_title": article["seo_title"],
                     "content": content,
-                    "meta_description": article["meta_description"]
+                    "meta_description": article["meta_description"],
+                    "friendly_url": article["friendly_url"]
                 }
                 
         except Exception as e:
